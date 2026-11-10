@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** O contexto subir já prova que o Hibernate validou o mapeamento ({@code ddl-auto: validate}) contra a V1. */
+/** O contexto subir já prova que o Hibernate validou o mapeamento ({@code ddl-auto: validate}) contra as migrações. */
 @TesteIntegracao
 class EstruturaBancoTest {
 
@@ -18,12 +18,13 @@ class EstruturaBancoTest {
     JdbcTemplate jdbc;
 
     @Test
-    void flywayAplicaAV1NoSchemaReport() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+    void flywayAplicaAsMigracoesNoSchemaReport() {
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
         assertThat(jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'report'", String.class))
                 .contains("relatorio", "pedido_titular", "projecao_score", "projecao_sos", "evento_processado",
-                        "outbox_evento", "flyway_schema_history");
+                        "outbox_evento", "confirmacao_exclusao", "projecao_perfil", "projecao_assinatura",
+                        "projecao_vinculo_administrador", "flyway_schema_history");
     }
 
     @Test

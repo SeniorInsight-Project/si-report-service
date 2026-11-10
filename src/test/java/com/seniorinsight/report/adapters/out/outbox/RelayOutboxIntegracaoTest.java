@@ -7,6 +7,7 @@ import static org.awaitility.Awaitility.await;
 import java.time.Duration;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.seniorinsight.report.TesteIntegracao;
 import com.seniorinsight.report.application.porta.saida.PublicadorEventos;
@@ -65,11 +66,16 @@ class RelayOutboxIntegracaoTest {
         assertThat(propriedades.getAppId()).isEqualTo("report-service");
         assertThat(propriedades.<String>getHeader("tipo_agregado")).isEqualTo("relatorio");
         assertThat(propriedades.<String>getHeader("agregado_id")).isEqualTo(relatorioId.toString());
-        assertThat(objectMapper.readTree(mensagem.getBody()))
-                .isEqualTo(objectMapper.createObjectNode()
-                        .put("relatorioId", relatorioId.toString()).put("tipo", "semanal"));
-
         UUID eventoId = UUID.fromString(propriedades.getMessageId());
+        JsonNode envelope = objectMapper.readTree(mensagem.getBody());
+        assertThat(envelope.get("specversion").asText()).isEqualTo("1.0");
+        assertThat(envelope.get("id").asText()).isEqualTo(eventoId.toString());
+        assertThat(envelope.get("source").asText()).isEqualTo("/report-service");
+        assertThat(envelope.get("type").asText()).isEqualTo("report.ready");
+        assertThat(envelope.get("subject").asText()).isEqualTo(relatorioId.toString());
+        assertThat(envelope.get("data")).isEqualTo(objectMapper.createObjectNode()
+                .put("relatorioId", relatorioId.toString()).put("tipo", "semanal"));
+
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             OutboxEvento evento = repositorio.findById(eventoId).orElseThrow();
             assertThat(evento.getAgregadoId()).isEqualTo(relatorioId);

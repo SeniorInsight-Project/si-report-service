@@ -28,7 +28,11 @@ Pacote base `com.seniorinsight.report`, em arquitetura hexagonal (mesmo padrão 
 | Tabela | Uso |
 |---|---|
 | `relatorio` | Relatórios gerados (semanal do médico, carteira da operadora), com a chave do PDF no armazenamento |
-| `pedido_titular` | Pedidos LGPD do titular (exportação, eliminação) |
+| `pedido_titular` | Pedidos LGPD do titular (exportação, eliminação), com protocolo, prazo e destino do comprovante |
+| `confirmacao_exclusao` | Confirmações `lgpd.erasure.completed` recebidas, uma por serviço e pedido |
+| `projecao_perfil` | Perfis projetados de `user.created`: ligam o `titularId` ao `sub` do token e dão o e-mail do comprovante |
+| `projecao_assinatura` | Assinatura do familiar, projetada de `subscription.changed` |
+| `projecao_vinculo_administrador` | Familiares administradores de cada idoso (ainda sem evento de origem, ver "Exclusão do titular") |
 | `projecao_score` | Último score de cada idoso, projetado dos eventos `score.*` |
 | `projecao_sos` | Ocorrências de SOS, projetadas dos eventos `sos.*` |
 | `evento_processado` | Ids dos eventos já consumidos (idempotência) |
@@ -64,6 +68,7 @@ O usuário do banco precisa poder criar o schema `report` (ou o schema precisa e
 |---|---|
 | `GET /actuator/health` (e `/liveness`, `/readiness`) | público |
 | `/swagger-ui.html` e `/v3/api-docs` | público |
+| `POST /v1/titulares/{titularId}/exclusao` | token do idoso titular, do familiar titular ou do Familiar Administrador |
 | todo o resto | token do Keycloak |
 
 ## Variáveis de ambiente
@@ -92,11 +97,15 @@ O `application.yml` não tem segredos; tudo vem do ambiente. O modelo está no [
 | `MINIO_ACCESS_KEY` | — | Access key do MinIO |
 | `MINIO_SECRET_KEY` | — | Secret key do MinIO |
 | `REPORT_AGENDAMENTO_HABILITADO` | `true` | Liga o Spring Scheduler dos relatórios (desligar em produção) |
+| `SPRING_MAIL_HOST` | — | SMTP do comprovante de exclusão. Sem ele, o comprovante só é registrado no log |
+| `SPRING_MAIL_PORT` | `587` | Porta do SMTP |
+| `SPRING_MAIL_USERNAME` / `SPRING_MAIL_PASSWORD` | — | Credenciais do SMTP |
+| `REPORT_COMPROVANTE_REMETENTE` | `nao-responda@seniorinsight.com.br` | Remetente do comprovante |
 | `SERVER_PORT` | `8080` | Porta HTTP |
 
 `KEYCLOAK_ISSUER_URI` precisa ser **exatamente** o valor do claim `iss` dos tokens. Quando o issuer não é acessível de dentro do container (no Compose ele é `http://localhost:8180/...`), informe `SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI` com o endereço interno do Keycloak: as chaves vêm de lá e o `iss` continua sendo validado.
 
-Ajustes opcionais (valores padrão no `application.yml`): `REPORT_OUTBOX_RELAY_INTERVALO` (`PT1S`), `REPORT_OUTBOX_RELAY_TAMANHO_LOTE` (`100`), `REPORT_OUTBOX_RELAY_TIMEOUT_CONFIRMACAO` (`PT5S`), `REPORT_MENSAGERIA_ROUTING_KEYS` (`score.#,sos.#`), `REPORT_AGENDAMENTO_CRON` (`0 0 6 * * MON`) e `REPORT_AGENDAMENTO_ZONA` (`America/Sao_Paulo`).
+Ajustes opcionais (valores padrão no `application.yml`): `REPORT_OUTBOX_RELAY_INTERVALO` (`PT1S`), `REPORT_OUTBOX_RELAY_TAMANHO_LOTE` (`100`), `REPORT_OUTBOX_RELAY_TIMEOUT_CONFIRMACAO` (`PT5S`), `REPORT_MENSAGERIA_ROUTING_KEYS` (`score.#,sos.#,user.created,subscription.changed,lgpd.erasure.completed`), `REPORT_AGENDAMENTO_CRON` (`0 0 6 * * MON`) e `REPORT_AGENDAMENTO_ZONA` (`America/Sao_Paulo`).
 
 ## Segurança
 
@@ -106,7 +115,7 @@ O serviço não tem login nem emite tokens: valida o JWT do Keycloak, sem sessã
 
 ### Publicação (outbox)
 
-Quem precisa publicar um evento chama a porta `PublicadorEventos` dentro da transação do caso de uso. O evento é gravado em `outbox_evento` junto com a mudança de estado, e um job agendado (`RelayOutbox`) publica os pendentes na exchange `si.events` com routing key = tipo do evento (ex.: `report.ready`), `message_id` = id da linha na outbox e publisher confirms. `FOR UPDATE SKIP LOCKED` permite várias réplicas rodando o relay. A entrega é "pelo menos uma vez".
+Quem precisa publicar um evento chama a porta `PublicadorEventos` dentro da transação do caso de uso. O evento é gravado em `outbox_evento` (como envelope CloudEvents 1.0, conforme os contratos do si-contracts) junto com a mudança de estado, e um job agendado (`RelayOutbox`) publica os pendentes na exchange `si.events` com routing key = tipo do evento (ex.: `report.ready`), `message_id` = id da linha na outbox e publisher confirms. `FOR UPDATE SKIP LOCKED` permite várias réplicas rodando o relay. A entrega é "pelo menos uma vez".
 
 ### Consumo (`report.q`)
 
@@ -122,6 +131,18 @@ Payloads esperados (campos do record do evento no serviço de origem):
 |---|---|
 | `score.*` | `idosoId`, `score`, `calculadoEm` |
 | `sos.*` | `sosId`, `idosoId`, `status`, `ocorridoEm` |
+
+Os eventos `user.created`, `subscription.changed` e `lgpd.erasure.completed` chegam como envelope CloudEvents; o serviço lê o campo `data`.
+
+## Exclusão do titular (HU-022)
+
+`POST /v1/titulares/{titularId}/exclusao` (pelo gateway: `/api/v1/report/titulares/{titularId}/exclusao`), corpo `{"confirmacao": "EXCLUIR"}`, resposta `202` com `{protocolo, prazoDias: 15, solicitadoEm}`. Contrato: `openapi/report-v1.yaml` do si-contracts.
+
+- **Quem pode**: o próprio titular (idoso, ou familiar para a conta dele; o `sub` do token precisa ser o do perfil) ou, para um idoso, um Familiar Administrador. Roles diferentes de `idoso` e `familiar` recebem `403`.
+- **Respostas**: `400` (confirmação diferente de `EXCLUIR`), `403`, `404` (titular desconhecido), `409` (já há pedido em andamento ou o familiar tem assinatura Premium ativa).
+- **O que acontece**: numa transação, o pedido é gravado, `lgpd.erasure.requested` vai para a outbox e os dados do titular no report-service são apagados: relatórios, exportações, projeções e os PDFs e exportações no armazenamento de objetos. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito. O registro do pedido (protocolo, datas, confirmações) permanece como prova do atendimento.
+- **Comprovante**: identity, care, billing, insight, notification e telemetry confirmam com `lgpd.erasure.completed`. Quando as seis chegam, o pedido vira `CONCLUIDO` e o comprovante vai por e-mail (SMTP) para o titular, ou para quem fez o pedido quando o idoso não tem e-mail. O e-mail é apagado do pedido depois do envio.
+- **Pendência**: o vínculo de Familiar Administrador ainda não tem evento de origem (o care-service não o publica); enquanto `projecao_vinculo_administrador` estiver vazia, só o próprio titular consegue pedir.
 
 ## Armazenamento de objetos
 

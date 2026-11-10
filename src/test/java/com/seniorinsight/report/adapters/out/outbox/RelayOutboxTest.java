@@ -35,7 +35,7 @@ class RelayOutboxTest {
 
     @BeforeEach
     void eventoPendente() {
-        evento = new OutboxEvento("relatorio", UUID.randomUUID(), "report.ready", "{}", Instant.now());
+        evento = new OutboxEvento(UUID.randomUUID(), "relatorio", UUID.randomUUID(), "report.ready", "{}", Instant.now());
         ReflectionTestUtils.setField(evento, "id", UUID.randomUUID());
         when(repositorio.travarPendentes(100)).thenReturn(List.of(evento));
     }
@@ -82,7 +82,7 @@ class RelayOutboxTest {
 
     @Test
     void interrompeOLoteQuandoOBrokerEstaFora() {
-        OutboxEvento seguinte = new OutboxEvento("relatorio", UUID.randomUUID(), "report.ready", "{}", Instant.now());
+        OutboxEvento seguinte = new OutboxEvento(UUID.randomUUID(), "relatorio", UUID.randomUUID(), "report.ready", "{}", Instant.now());
         ReflectionTestUtils.setField(seguinte, "id", UUID.randomUUID());
         when(repositorio.travarPendentes(100)).thenReturn(List.of(evento, seguinte));
         doThrow(new AmqpConnectException(new ConnectException("Connection refused")))
