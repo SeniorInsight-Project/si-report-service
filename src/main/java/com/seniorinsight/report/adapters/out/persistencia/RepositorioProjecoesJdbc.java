@@ -3,7 +3,9 @@ package com.seniorinsight.report.adapters.out.persistencia;
 import java.sql.Timestamp;
 
 import com.seniorinsight.report.application.porta.saida.RepositorioProjecoes;
+import com.seniorinsight.report.domain.projecao.AssinaturaFamiliar;
 import com.seniorinsight.report.domain.projecao.OcorrenciaSos;
+import com.seniorinsight.report.domain.projecao.PerfilTitular;
 import com.seniorinsight.report.domain.projecao.ScoreIdoso;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -36,5 +38,26 @@ class RepositorioProjecoesJdbc implements RepositorioProjecoes {
                 ON CONFLICT (sos_id) DO UPDATE
                    SET status = EXCLUDED.status, atualizado_em = now()
                 """, sos.sosId(), sos.idosoId(), sos.status(), Timestamp.from(sos.ocorridoEm()));
+    }
+
+    @Override
+    public void salvarPerfil(PerfilTitular perfil) {
+        jdbc.update("""
+                INSERT INTO projecao_perfil (perfil_id, keycloak_sub, tipo, nome, email, atualizado_em)
+                VALUES (?, ?, ?, ?, ?, now())
+                ON CONFLICT (perfil_id) DO UPDATE
+                   SET keycloak_sub = EXCLUDED.keycloak_sub, tipo = EXCLUDED.tipo, nome = EXCLUDED.nome,
+                       email = EXCLUDED.email, atualizado_em = now()
+                """, perfil.perfilId(), perfil.keycloakSub(), perfil.tipo().name(), perfil.nome(), perfil.email());
+    }
+
+    @Override
+    public void salvarAssinatura(AssinaturaFamiliar assinatura) {
+        jdbc.update("""
+                INSERT INTO projecao_assinatura (familiar_sub, plano, ativa, atualizado_em)
+                VALUES (?, ?, ?, now())
+                ON CONFLICT (familiar_sub) DO UPDATE
+                   SET plano = EXCLUDED.plano, ativa = EXCLUDED.ativa, atualizado_em = now()
+                """, assinatura.familiarSub(), assinatura.plano(), assinatura.ativa());
     }
 }

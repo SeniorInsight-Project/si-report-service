@@ -15,6 +15,9 @@ public interface ArmazenamentoObjetos {
 
     void salvar(String chave, byte[] conteudo, String contentType);
 
+    /** Apaga o objeto; uma chave que não existe é ignorada. */
+    void remover(String chave);
+
     /** URL de download sem autenticação, válida por {@code validade} (no máximo 7 dias). */
     URI gerarUrlAssinada(String chave, Duration validade);
 
