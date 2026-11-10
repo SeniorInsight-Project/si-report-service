@@ -1,6 +1,8 @@
 package com.seniorinsight.report.application.porta.saida;
 
+import com.seniorinsight.report.domain.projecao.AssinaturaFamiliar;
 import com.seniorinsight.report.domain.projecao.OcorrenciaSos;
+import com.seniorinsight.report.domain.projecao.PerfilTitular;
 import com.seniorinsight.report.domain.projecao.ScoreIdoso;
 
 /** Projeções locais dos dados de outros serviços, usadas na montagem dos relatórios. */
@@ -10,4 +12,8 @@ public interface RepositorioProjecoes {
     void salvarScore(ScoreIdoso score);
 
     void salvarSos(OcorrenciaSos sos);
+
+    void salvarPerfil(PerfilTitular perfil);
+
+    void salvarAssinatura(AssinaturaFamiliar assinatura);
 }

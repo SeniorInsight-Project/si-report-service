@@ -45,6 +45,10 @@ server:
   forward-headers-strategy: framework
 
 management:
+  health:
+    mail:
+      # Fora do ar, o SMTP não deve derrubar o health do serviço.
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -63,7 +67,7 @@ report:
 
   mensageria:
     # Eventos de si.events que caem na fila report.q (projeções de Scores e de SOS).
-    routing-keys: score.#,sos.#
+    routing-keys: score.#,sos.#,user.created,subscription.changed,lgpd.erasure.completed
 
   armazenamento:
     # minio no ambiente local; em produção, Cloud Storage (adaptador da mesma porta).
@@ -76,6 +80,10 @@ report:
       regiao: ${MINIO_REGION:us-east-1}
       access-key: ${MINIO_ACCESS_KEY}
       secret-key: ${MINIO_SECRET_KEY}
+
+  exclusao:
+    # Remetente do comprovante de exclusão.
+    remetente: ${REPORT_COMPROVANTE_REMETENTE:nao-responda@seniorinsight.com.br}
 
   agendamento:
     # Spring Scheduler local; desligue em produção (o gatilho é o Cloud Scheduler).

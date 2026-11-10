@@ -3,6 +3,7 @@ package com.seniorinsight.report;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -44,5 +45,12 @@ public class ContainersConfig {
             registro.add("report.armazenamento.minio.access-key", minio::getUserName);
             registro.add("report.armazenamento.minio.secret-key", minio::getPassword);
         };
+    }
+
+    /** Em vez de e-mail de verdade, os testes lêem os comprovantes que o serviço teria enviado. */
+    @Bean
+    @Primary
+    ComprovantesEnviados comprovantesEnviados() {
+        return new ComprovantesEnviados();
     }
 }

@@ -5,10 +5,15 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
+import com.seniorinsight.report.application.exclusao.RegistrarConfirmacaoExclusao;
 import com.seniorinsight.report.application.projecao.AtualizarProjecoes;
+import com.seniorinsight.report.domain.exclusao.TipoTitular;
+import com.seniorinsight.report.domain.projecao.AssinaturaFamiliar;
 import com.seniorinsight.report.domain.projecao.OcorrenciaSos;
+import com.seniorinsight.report.domain.projecao.PerfilTitular;
 import com.seniorinsight.report.domain.projecao.ScoreIdoso;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,10 +35,13 @@ class ConsumidorEventos {
     private static final Logger log = LoggerFactory.getLogger(ConsumidorEventos.class);
 
     private final AtualizarProjecoes atualizarProjecoes;
+    private final RegistrarConfirmacaoExclusao registrarConfirmacaoExclusao;
     private final ObjectMapper objectMapper;
 
-    ConsumidorEventos(AtualizarProjecoes atualizarProjecoes, ObjectMapper objectMapper) {
+    ConsumidorEventos(AtualizarProjecoes atualizarProjecoes, RegistrarConfirmacaoExclusao registrarConfirmacaoExclusao,
+                      ObjectMapper objectMapper) {
         this.atualizarProjecoes = atualizarProjecoes;
+        this.registrarConfirmacaoExclusao = registrarConfirmacaoExclusao;
         this.objectMapper = objectMapper;
     }
 
@@ -68,6 +76,18 @@ class ConsumidorEventos {
             SosPayload payload = objectMapper.readValue(mensagem.getBody(), SosPayload.class);
             aplicado = atualizarProjecoes.aplicarSos(eventoId, tipo,
                     new OcorrenciaSos(payload.sosId(), payload.idosoId(), payload.status(), payload.ocorridoEm()));
+        } else if (tipo.equals("user.created")) {
+            PerfilPayload perfil = dadosDoEnvelope(mensagem, PerfilPayload.class);
+            aplicado = atualizarProjecoes.aplicarPerfil(eventoId, tipo, new PerfilTitular(perfil.perfilId(),
+                    perfil.keycloakSub(), TipoTitular.valueOf(perfil.tipo()), perfil.nome(), perfil.email()));
+        } else if (tipo.equals("subscription.changed")) {
+            AssinaturaPayload assinatura = dadosDoEnvelope(mensagem, AssinaturaPayload.class);
+            aplicado = atualizarProjecoes.aplicarAssinatura(eventoId, tipo,
+                    new AssinaturaFamiliar(assinatura.familiarSub(), assinatura.plano(), assinatura.ativa()));
+        } else if (tipo.equals("lgpd.erasure.completed")) {
+            ConfirmacaoExclusaoPayload confirmacao = dadosDoEnvelope(mensagem, ConfirmacaoExclusaoPayload.class);
+            aplicado = registrarConfirmacaoExclusao.executar(eventoId, tipo, confirmacao.protocolo(),
+                    confirmacao.servico());
         } else {
             log.debug("report.q: evento {} do tipo {} ignorado", eventoId, tipo);
             return;
@@ -75,6 +95,15 @@ class ConsumidorEventos {
         if (!aplicado) {
             log.debug("report.q: evento {} ({}) já processado, ignorado", eventoId, tipo);
         }
+    }
+
+    /** Os eventos dos contratos novos chegam como envelope CloudEvents; o que interessa está em {@code data}. */
+    private <T> T dadosDoEnvelope(Message mensagem, Class<T> tipo) throws IOException {
+        JsonNode data = objectMapper.readTree(mensagem.getBody()).path("data");
+        if (!data.isObject()) {
+            throw new IllegalArgumentException("envelope sem data");
+        }
+        return objectMapper.treeToValue(data, tipo);
     }
 
     private static String tipoEvento(MessageProperties propriedades) {
@@ -85,5 +114,14 @@ class ConsumidorEventos {
     }
 
     record SosPayload(UUID sosId, UUID idosoId, String status, Instant ocorridoEm) {
+    }
+
+    record PerfilPayload(UUID perfilId, String keycloakSub, String tipo, String nome, String email) {
+    }
+
+    record AssinaturaPayload(String familiarSub, String plano, boolean ativa) {
+    }
+
+    record ConfirmacaoExclusaoPayload(UUID protocolo, String servico) {
     }
 }
