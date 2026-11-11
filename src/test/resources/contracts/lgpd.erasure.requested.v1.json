@@ -65,12 +65,15 @@
         },
         "titularId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "`sub` do Keycloak do titular autenticado"
         },
         "titularSub": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 255
+          "maxLength": 255,
+          "deprecated": true,
+          "description": "Mesmo valor de titularId (sub do Keycloak). Sai na próxima versão major."
         }
       }
     }
