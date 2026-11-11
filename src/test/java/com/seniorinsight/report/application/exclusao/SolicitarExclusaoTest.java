@@ -8,6 +8,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -48,15 +49,17 @@ class SolicitarExclusaoTest {
     private SolicitarExclusao caso;
 
     private final UUID idosoId = UUID.randomUUID();
+    private final UUID perfilIdoso = UUID.randomUUID();
+    private final String subIdoso = idosoId.toString();
     private final PerfilTitular idoso =
-            new PerfilTitular(idosoId, "sub-idoso", TipoTitular.IDOSO, "Maria", "maria@email.com");
-    private final Solicitante daIdosa = new Solicitante("sub-idoso", Set.of("idoso"));
+            new PerfilTitular(perfilIdoso, subIdoso, TipoTitular.IDOSO, "Maria", "maria@email.com");
+    private final Solicitante daIdosa = new Solicitante(subIdoso, Set.of("idoso"));
 
     @BeforeEach
     void preparar() {
         caso = new SolicitarExclusao(titulares, pedidos, publicador, eliminacao, armazenamento,
                 Clock.fixed(AGORA, ZoneOffset.UTC));
-        when(titulares.buscarPerfil(idosoId)).thenReturn(Optional.of(idoso));
+        when(titulares.buscarPerfilPorSub(subIdoso)).thenReturn(Optional.of(idoso));
         when(eliminacao.apagarRegistros(any(), any())).thenReturn(List.of());
     }
 
@@ -73,77 +76,65 @@ class SolicitarExclusaoTest {
     }
 
     @Test
-    void publicaOEventoComOProtocoloENaoComOsDadosDeQuemSolicitou() {
+    void publicaOEventoComOSubEmTitularIdEEmTitularSub() {
         PedidoExclusao pedido = caso.executar(idosoId, daIdosa);
 
         ArgumentCaptor<ExclusaoSolicitada> evento = ArgumentCaptor.forClass(ExclusaoSolicitada.class);
         verify(publicador).publicar(evento.capture());
         assertThat(evento.getValue()).isEqualTo(
-                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, idosoId, "sub-idoso"));
+                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, idosoId, subIdoso));
         assertThat(evento.getValue().agregadoId()).isEqualTo(pedido.protocolo());
         assertThat(evento.getValue().tipoEvento()).isEqualTo("lgpd.erasure.requested");
     }
 
     @Test
     void apagaOsArquivosDoTitularNoArmazenamentoDepoisDeGravarOPedido() {
-        when(eliminacao.apagarRegistros(idosoId, "sub-idoso")).thenReturn(List.of("relatorios/a.pdf", "exports/b.zip"));
+        when(eliminacao.apagarRegistros(perfilIdoso, subIdoso)).thenReturn(List.of("relatorios/a.pdf", "exports/b.zip"));
 
         caso.executar(idosoId, daIdosa);
 
         var ordem = inOrder(pedidos, eliminacao, armazenamento);
         ordem.verify(pedidos).salvar(any());
-        ordem.verify(eliminacao).apagarRegistros(idosoId, "sub-idoso");
+        ordem.verify(eliminacao).apagarRegistros(perfilIdoso, subIdoso);
         ordem.verify(armazenamento).remover("relatorios/a.pdf");
         ordem.verify(armazenamento).remover("exports/b.zip");
     }
 
     @Test
-    void familiarAdministradorPedePeloIdoso() {
-        when(titulares.ehFamiliarAdministrador(idosoId, "sub-familiar")).thenReturn(true);
+    void titularIdDiferenteDoSubDoTokenEhAcessoNegadoSemConsultarNemRegistrarNemPublicar() {
+        UUID deOutraPessoa = UUID.randomUUID();
 
-        PedidoExclusao pedido = caso.executar(idosoId, new Solicitante("sub-familiar", Set.of("familiar")));
-
-        assertThat(pedido.titularSub()).isEqualTo("sub-idoso");
-        assertThat(pedido.solicitanteSub()).isEqualTo("sub-familiar");
+        assertThatThrownBy(() -> caso.executar(deOutraPessoa, daIdosa))
+                .isInstanceOfSatisfying(ExclusaoException.class, e -> assertThat(e.tipo()).isEqualTo(Tipo.ACESSO_NEGADO));
+        verifyNoInteractions(titulares, pedidos, publicador, eliminacao, armazenamento);
     }
 
     @Test
-    void idosoSemEmailRecebeOComprovanteNoEmailDeQuemPediu() {
-        PerfilTitular semEmail = new PerfilTitular(idosoId, "sub-idoso", TipoTitular.IDOSO, "Maria", null);
-        when(titulares.buscarPerfil(idosoId)).thenReturn(Optional.of(semEmail));
-        when(titulares.ehFamiliarAdministrador(idosoId, "sub-familiar")).thenReturn(true);
-        when(titulares.buscarPerfilPorSub("sub-familiar")).thenReturn(Optional.of(
-                new PerfilTitular(UUID.randomUUID(), "sub-familiar", TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
+    void familiarAdministradorNaoPedePorOutraPessoa() {
+        Solicitante familiar = new Solicitante(UUID.randomUUID().toString(), Set.of("familiar"));
 
-        PedidoExclusao pedido = caso.executar(idosoId, new Solicitante("sub-familiar", Set.of("familiar")));
-
-        assertThat(pedido.emailComprovante()).isEqualTo("ana@email.com");
-    }
-
-    @Test
-    void familiarComumNaoPedePeloIdoso() {
-        when(titulares.ehFamiliarAdministrador(idosoId, "sub-outro")).thenReturn(false);
-
-        assertThatThrownBy(() -> caso.executar(idosoId, new Solicitante("sub-outro", Set.of("familiar"))))
+        assertThatThrownBy(() -> caso.executar(idosoId, familiar))
                 .isInstanceOfSatisfying(ExclusaoException.class, e -> assertThat(e.tipo()).isEqualTo(Tipo.ACESSO_NEGADO));
         verify(pedidos, never()).salvar(any());
         verify(publicador, never()).publicar(any());
     }
 
     @Test
-    void medicoOuAdminNaoPedemMesmoComOSubDoTitular() {
-        assertThatThrownBy(() -> caso.executar(idosoId, new Solicitante("sub-idoso", Set.of("medico"))))
-                .isInstanceOfSatisfying(ExclusaoException.class, e -> assertThat(e.tipo()).isEqualTo(Tipo.ACESSO_NEGADO));
+    void subSemPerfilRetornaNaoEncontrado() {
+        UUID semPerfil = UUID.randomUUID();
+        when(titulares.buscarPerfilPorSub(semPerfil.toString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> caso.executar(semPerfil, new Solicitante(semPerfil.toString(), Set.of("idoso"))))
+                .isInstanceOfSatisfying(ExclusaoException.class,
+                        e -> assertThat(e.tipo()).isEqualTo(Tipo.TITULAR_NAO_ENCONTRADO));
+        verify(pedidos, never()).salvar(any());
+        verify(publicador, never()).publicar(any());
     }
 
     @Test
-    void titularDesconhecidoRetornaNaoEncontrado() {
-        UUID outro = UUID.randomUUID();
-        when(titulares.buscarPerfil(outro)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> caso.executar(outro, daIdosa))
-                .isInstanceOfSatisfying(ExclusaoException.class,
-                        e -> assertThat(e.tipo()).isEqualTo(Tipo.TITULAR_NAO_ENCONTRADO));
+    void medicoOuAdminNaoPedemMesmoComOSubDoTitular() {
+        assertThatThrownBy(() -> caso.executar(idosoId, new Solicitante(subIdoso, Set.of("medico"))))
+                .isInstanceOfSatisfying(ExclusaoException.class, e -> assertThat(e.tipo()).isEqualTo(Tipo.ACESSO_NEGADO));
     }
 
     @Test
@@ -167,24 +158,26 @@ class SolicitarExclusaoTest {
     @Test
     void familiarComAssinaturaPremiumAtivaEhConflito() {
         UUID familiarId = UUID.randomUUID();
-        when(titulares.buscarPerfil(familiarId)).thenReturn(Optional.of(
-                new PerfilTitular(familiarId, "sub-familiar", TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
-        when(titulares.buscarAssinatura("sub-familiar"))
-                .thenReturn(Optional.of(new AssinaturaFamiliar("sub-familiar", "PREMIUM", true)));
+        String subFamiliar = familiarId.toString();
+        when(titulares.buscarPerfilPorSub(subFamiliar)).thenReturn(Optional.of(
+                new PerfilTitular(UUID.randomUUID(), subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
+        when(titulares.buscarAssinatura(subFamiliar))
+                .thenReturn(Optional.of(new AssinaturaFamiliar(subFamiliar, "PREMIUM", true)));
 
-        assertThatThrownBy(() -> caso.executar(familiarId, new Solicitante("sub-familiar", Set.of("familiar"))))
+        assertThatThrownBy(() -> caso.executar(familiarId, new Solicitante(subFamiliar, Set.of("familiar"))))
                 .isInstanceOfSatisfying(ExclusaoException.class, e -> assertThat(e.tipo()).isEqualTo(Tipo.CONFLITO));
     }
 
     @Test
     void familiarComAssinaturaCanceladaPodePedir() {
         UUID familiarId = UUID.randomUUID();
-        when(titulares.buscarPerfil(familiarId)).thenReturn(Optional.of(
-                new PerfilTitular(familiarId, "sub-familiar", TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
-        when(titulares.buscarAssinatura("sub-familiar"))
-                .thenReturn(Optional.of(new AssinaturaFamiliar("sub-familiar", "PREMIUM", false)));
+        String subFamiliar = familiarId.toString();
+        when(titulares.buscarPerfilPorSub(subFamiliar)).thenReturn(Optional.of(
+                new PerfilTitular(UUID.randomUUID(), subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
+        when(titulares.buscarAssinatura(subFamiliar))
+                .thenReturn(Optional.of(new AssinaturaFamiliar(subFamiliar, "PREMIUM", false)));
 
-        PedidoExclusao pedido = caso.executar(familiarId, new Solicitante("sub-familiar", Set.of("familiar")));
+        PedidoExclusao pedido = caso.executar(familiarId, new Solicitante(subFamiliar, Set.of("familiar")));
 
         assertThat(pedido.tipoTitular()).isEqualTo(TipoTitular.FAMILIAR);
     }

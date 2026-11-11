@@ -31,20 +31,8 @@ class ConsultaTitularesJdbc implements ConsultaTitulares {
     }
 
     @Override
-    public Optional<PerfilTitular> buscarPerfil(UUID perfilId) {
-        return jdbc.query(SELECT_PERFIL + " WHERE perfil_id = ?", PERFIL, perfilId).stream().findFirst();
-    }
-
-    @Override
     public Optional<PerfilTitular> buscarPerfilPorSub(String keycloakSub) {
         return jdbc.query(SELECT_PERFIL + " WHERE keycloak_sub = ?", PERFIL, keycloakSub).stream().findFirst();
-    }
-
-    @Override
-    public boolean ehFamiliarAdministrador(UUID idosoId, String familiarSub) {
-        return Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS (SELECT 1 FROM projecao_vinculo_administrador WHERE idoso_id = ? AND familiar_sub = ?)
-                """, Boolean.class, idosoId, familiarSub));
     }
 
     @Override

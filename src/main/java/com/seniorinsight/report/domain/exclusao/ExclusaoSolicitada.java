@@ -6,9 +6,12 @@ import com.seniorinsight.report.domain.evento.EventoDominio;
 
 /**
  * Evento {@code lgpd.erasure.requested}: pede aos outros serviços a exclusão dos dados do titular. Os componentes do
- * record são o {@code data} do evento, como no contrato do si-contracts.
+ * record são o {@code data} do evento, como no contrato do si-contracts. O {@code titularId} é o {@code sub} do
+ * Keycloak do titular; o {@code titularSub} repete o mesmo valor, está deprecado no contrato e sai na próxima versão
+ * major.
  */
-public record ExclusaoSolicitada(UUID protocolo, TipoTitular tipoTitular, UUID titularId, String titularSub)
+public record ExclusaoSolicitada(UUID protocolo, TipoTitular tipoTitular, UUID titularId,
+                                 @Deprecated String titularSub)
         implements EventoDominio {
 
     public static final String TIPO_EVENTO = "lgpd.erasure.requested";

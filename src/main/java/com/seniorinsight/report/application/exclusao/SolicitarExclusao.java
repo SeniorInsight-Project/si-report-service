@@ -22,11 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Pedido de exclusão dos dados do titular (HU-022, RF-015).
  *
- * <p>Quem pode pedir: o próprio titular (o idoso, ou o familiar para a conta dele) ou, para um idoso, um Familiar
- * Administrador. Numa única transação o caso de uso grava o pedido (prazo de {@value PedidoExclusao#PRAZO_DIAS} dias),
- * enfileira {@code lgpd.erasure.requested} na outbox e apaga os dados do titular no próprio report-service: registros
- * no banco e arquivos (PDFs e exportações) no armazenamento. Se o armazenamento falhar, nada é confirmado e o pedido
- * pode ser refeito.
+ * <p>Só o próprio titular pede: o {@code titularId} da rota é o {@code sub} do Keycloak e precisa ser o do token. O
+ * pedido de um Familiar Administrador em nome de outra pessoa não existe no MVP. Numa única transação o caso de uso
+ * grava o pedido (prazo de {@value PedidoExclusao#PRAZO_DIAS} dias), enfileira {@code lgpd.erasure.requested} na outbox
+ * e apaga os dados do titular no próprio report-service: registros no banco e arquivos (PDFs e exportações) no
+ * armazenamento. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito.
  */
 @Service
 public class SolicitarExclusao {
@@ -53,13 +53,11 @@ public class SolicitarExclusao {
 
     @Transactional
     public PedidoExclusao executar(UUID titularId, Solicitante solicitante) {
-        if (!solicitante.podeSolicitarExclusao()) {
+        if (!solicitante.podeSolicitarExclusao() || !solicitante.ehOTitular(titularId)) {
             throw ExclusaoException.acessoNegado();
         }
-        PerfilTitular titular = titulares.buscarPerfil(titularId).orElseThrow(ExclusaoException::titularNaoEncontrado);
-        if (!podeSolicitar(titular, solicitante)) {
-            throw ExclusaoException.acessoNegado();
-        }
+        PerfilTitular titular = titulares.buscarPerfilPorSub(solicitante.sub())
+                .orElseThrow(ExclusaoException::titularNaoEncontrado);
         if (pedidos.existeEmAndamento(titularId)) {
             throw ExclusaoException.pedidoEmAndamento();
         }
@@ -68,7 +66,7 @@ public class SolicitarExclusao {
         }
 
         PedidoExclusao pedido = PedidoExclusao.registrar(titularId, titular.tipo(), titular.keycloakSub(),
-                solicitante.sub(), emailDoComprovante(titular, solicitante), relogio.instant());
+                solicitante.sub(), titular.email(), relogio.instant());
         try {
             pedidos.salvar(pedido);
         } catch (DuplicateKeyException e) {
@@ -77,32 +75,16 @@ public class SolicitarExclusao {
         }
         publicador.publicar(ExclusaoSolicitada.de(pedido));
 
-        List<String> arquivos = eliminacao.apagarRegistros(titularId, titular.keycloakSub());
+        List<String> arquivos = eliminacao.apagarRegistros(titular.perfilId(), titular.keycloakSub());
         arquivos.forEach(armazenamento::remover);
         log.info("Exclusão {}: pedido registrado, {} arquivo(s) apagado(s) do armazenamento",
                 pedido.protocolo(), arquivos.size());
         return pedido;
     }
 
-    private boolean podeSolicitar(PerfilTitular titular, Solicitante solicitante) {
-        if (titular.keycloakSub().equals(solicitante.sub())) {
-            return true;
-        }
-        return titular.tipo() == TipoTitular.IDOSO
-                && titulares.ehFamiliarAdministrador(titular.perfilId(), solicitante.sub());
-    }
-
     private boolean temPremiumAtiva(PerfilTitular familiar) {
         return titulares.buscarAssinatura(familiar.keycloakSub())
                 .map(assinatura -> assinatura.premiumAtiva())
                 .orElse(false);
-    }
-
-    /** O idoso pareado por QR não tem e-mail: o comprovante vai para quem fez o pedido. */
-    private String emailDoComprovante(PerfilTitular titular, Solicitante solicitante) {
-        if (titular.email() != null) {
-            return titular.email();
-        }
-        return titulares.buscarPerfilPorSub(solicitante.sub()).map(PerfilTitular::email).orElse(null);
     }
 }
