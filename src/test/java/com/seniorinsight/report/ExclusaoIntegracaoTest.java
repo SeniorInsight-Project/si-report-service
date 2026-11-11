@@ -40,7 +40,7 @@ import org.testcontainers.containers.MinIOContainer;
 
 /**
  * Pedido de exclusão de ponta a ponta, com PostgreSQL, RabbitMQ e MinIO reais: o perfil chega por {@code user.created},
- * o POST grava o pedido, publica {@code lgpd.erasure.requested} pelo outbox e apaga os arquivos; as confirmações dos
+ * o POST (com o {@code sub} do Keycloak em {@code titularId}) grava o pedido, publica {@code lgpd.erasure.requested} pelo outbox e apaga os arquivos; as confirmações dos
  * seis serviços chegam por {@code lgpd.erasure.completed} e a última dispara o comprovante.
  */
 @TesteIntegracao
@@ -81,9 +81,11 @@ class ExclusaoIntegracaoTest {
     void pedidoApagaOsDadosPublicaOEventoEOComprovanteSaiQuandoTodosConfirmam() throws Exception {
         UUID idosoId = UUID.randomUUID();
         UUID outroIdosoId = UUID.randomUUID();
-        String sub = "sub-" + idosoId;
+        UUID subDoOutro = UUID.randomUUID();
+        UUID subIdoso = UUID.randomUUID();
+        String sub = subIdoso.toString();
         publicarUserCreated(idosoId, sub, "IDOSO", "maria@email.com");
-        publicarUserCreated(outroIdosoId, "sub-" + outroIdosoId, "IDOSO", "outra@email.com");
+        publicarUserCreated(outroIdosoId, subDoOutro.toString(), "IDOSO", "outra@email.com");
         await().atMost(ESPERA).until(() -> perfis(outroIdosoId) == 1 && perfis(idosoId) == 1);
 
         String pdf = "relatorios/" + idosoId + "/semanal.pdf";
@@ -98,12 +100,14 @@ class ExclusaoIntegracaoTest {
         amqpAdmin.declareBinding(BindingBuilder.bind(fila).to(new TopicExchange("si.events"))
                 .with("lgpd.erasure.requested"));
 
-        // Outro familiar sem vínculo de administrador não pede pela idosa.
-        solicitar(idosoId, "sub-intruso", "familiar", "EXCLUIR").andExpect(status().isForbidden());
+        // titularId de outra pessoa: 403, sem registrar pedido nem apagar nada.
+        solicitar(subDoOutro, sub, "idoso", "EXCLUIR").andExpect(status().isForbidden());
+        assertThat(pedidosDoTitular(subDoOutro)).isZero();
+        assertThat(perfis(outroIdosoId)).isEqualTo(1);
         // Confirmação errada.
-        solicitar(idosoId, sub, "idoso", "excluir").andExpect(status().isBadRequest());
+        solicitar(subIdoso, sub, "idoso", "excluir").andExpect(status().isBadRequest());
 
-        String resposta = solicitar(idosoId, sub, "idoso", "EXCLUIR")
+        String resposta = solicitar(subIdoso, sub, "idoso", "EXCLUIR")
                 .andExpect(status().isAccepted())
                 .andReturn().getResponse().getContentAsString();
         UUID protocolo = UUID.fromString(objectMapper.readTree(resposta).get("protocolo").asText());
@@ -116,7 +120,7 @@ class ExclusaoIntegracaoTest {
         assertThat(contrato("lgpd.erasure.requested.v1.json").validate(envelope)).isEmpty();
         assertThat(envelope.get("subject").asText()).isEqualTo(protocolo.toString());
         assertThat(envelope.at("/data/protocolo").asText()).isEqualTo(protocolo.toString());
-        assertThat(envelope.at("/data/titularId").asText()).isEqualTo(idosoId.toString());
+        assertThat(envelope.at("/data/titularId").asText()).isEqualTo(sub);
         assertThat(envelope.at("/data/titularSub").asText()).isEqualTo(sub);
         assertThat(envelope.at("/data/tipoTitular").asText()).isEqualTo("IDOSO");
 
@@ -135,7 +139,7 @@ class ExclusaoIntegracaoTest {
         // Já há um pedido em andamento (o perfil sumiu, então a repetição deixa de achar o titular).
         publicarUserCreated(idosoId, sub, "IDOSO", "maria@email.com");
         await().atMost(ESPERA).until(() -> perfis(idosoId) == 1);
-        solicitar(idosoId, sub, "idoso", "EXCLUIR").andExpect(status().isConflict());
+        solicitar(subIdoso, sub, "idoso", "EXCLUIR").andExpect(status().isConflict());
 
         // Cinco confirmações: ainda sem comprovante. A sexta conclui o pedido.
         UUID ultimoEvento = null;
@@ -167,7 +171,8 @@ class ExclusaoIntegracaoTest {
     @Test
     void familiarComAssinaturaPremiumAtivaNaoApagaAConta() throws Exception {
         UUID familiarId = UUID.randomUUID();
-        String sub = "sub-" + familiarId;
+        UUID subFamiliar = UUID.randomUUID();
+        String sub = subFamiliar.toString();
         publicarUserCreated(familiarId, sub, "FAMILIAR", "ana@email.com");
         publicar(UUID.randomUUID(), "subscription.changed", Map.of(
                 "familiarSub", sub, "plano", "PREMIUM", "ativa", true, "expiraEm", "2027-01-01T00:00:00Z",
@@ -175,35 +180,19 @@ class ExclusaoIntegracaoTest {
         await().atMost(ESPERA).until(() -> perfis(familiarId) == 1
                 && contarAssinaturas(sub) == 1);
 
-        solicitar(familiarId, sub, "familiar", "EXCLUIR").andExpect(status().isConflict());
+        solicitar(subFamiliar, sub, "familiar", "EXCLUIR").andExpect(status().isConflict());
 
         assertThat(perfis(familiarId)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM pedido_titular WHERE titular_id = ?", Integer.class,
-                familiarId)).isZero();
+        assertThat(pedidosDoTitular(subFamiliar)).isZero();
     }
 
     @Test
-    void familiarAdministradorPedePeloIdosoSemEmailEOComprovanteVaiParaEle() throws Exception {
-        UUID idosoId = UUID.randomUUID();
-        UUID familiarId = UUID.randomUUID();
-        String subFamiliar = "sub-" + familiarId;
-        publicarUserCreated(idosoId, "sub-" + idosoId, "IDOSO", null);
-        publicarUserCreated(familiarId, subFamiliar, "FAMILIAR", "ana@email.com");
-        await().atMost(ESPERA).until(() -> perfis(idosoId) == 1 && perfis(familiarId) == 1);
-        jdbc.update("INSERT INTO projecao_vinculo_administrador (idoso_id, familiar_sub) VALUES (?, ?)",
-                idosoId, subFamiliar);
+    void subSemPerfilResponde404() throws Exception {
+        UUID semPerfil = UUID.randomUUID();
 
-        String resposta = solicitar(idosoId, subFamiliar, "familiar", "EXCLUIR")
-                .andExpect(status().isAccepted())
-                .andReturn().getResponse().getContentAsString();
-        UUID protocolo = UUID.fromString(objectMapper.readTree(resposta).get("protocolo").asText());
-        for (String servico : SERVICOS) {
-            publicarConfirmacao(UUID.randomUUID(), protocolo, servico);
-        }
+        solicitar(semPerfil, semPerfil.toString(), "idoso", "EXCLUIR").andExpect(status().isNotFound());
 
-        await().atMost(ESPERA).until(() -> comprovantes.doProtocolo(protocolo).size() == 1);
-        assertThat(comprovantes.doProtocolo(protocolo).getFirst().email()).isEqualTo("ana@email.com");
-        assertThat(perfis(familiarId)).isEqualTo(1);
+        assertThat(pedidosDoTitular(semPerfil)).isZero();
     }
 
     @Test
@@ -285,6 +274,11 @@ class ExclusaoIntegracaoTest {
                 INSERT INTO relatorio (idoso_id, tipo, periodo_inicio, periodo_fim, status, objeto_chave)
                 VALUES (?, 'SEMANAL_MEDICO', '2026-10-26', '2026-11-01', 'PRONTO', ?)
                 """, idosoId, chave);
+    }
+
+    private int pedidosDoTitular(UUID titularId) {
+        return jdbc.queryForObject("SELECT count(*) FROM pedido_titular WHERE titular_id = ?", Integer.class,
+                titularId);
     }
 
     private int perfis(UUID perfilId) {

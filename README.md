@@ -32,7 +32,7 @@ Pacote base `com.seniorinsight.report`, em arquitetura hexagonal (mesmo padrão 
 | `confirmacao_exclusao` | Confirmações `lgpd.erasure.completed` recebidas, uma por serviço e pedido |
 | `projecao_perfil` | Perfis projetados de `user.created`: ligam o `titularId` ao `sub` do token e dão o e-mail do comprovante |
 | `projecao_assinatura` | Assinatura do familiar, projetada de `subscription.changed` |
-| `projecao_vinculo_administrador` | Familiares administradores de cada idoso (ainda sem evento de origem, ver "Exclusão do titular") |
+| `projecao_vinculo_administrador` | Familiares administradores de cada idoso (ainda sem evento de origem; a exclusão não usa mais essa projeção, só a apaga) |
 | `projecao_score` | Último score de cada idoso, projetado dos eventos `score.*` |
 | `projecao_sos` | Ocorrências de SOS, projetadas dos eventos `sos.*` |
 | `evento_processado` | Ids dos eventos já consumidos (idempotência) |
@@ -138,11 +138,11 @@ Os eventos `user.created`, `subscription.changed` e `lgpd.erasure.completed` che
 
 `POST /v1/titulares/{titularId}/exclusao` (pelo gateway: `/api/v1/report/titulares/{titularId}/exclusao`), corpo `{"confirmacao": "EXCLUIR"}`, resposta `202` com `{protocolo, prazoDias: 15, solicitadoEm}`. Contrato: `openapi/report-v1.yaml` do si-contracts.
 
-- **Quem pode**: o próprio titular (idoso, ou familiar para a conta dele; o `sub` do token precisa ser o do perfil) ou, para um idoso, um Familiar Administrador. Roles diferentes de `idoso` e `familiar` recebem `403`.
-- **Respostas**: `400` (confirmação diferente de `EXCLUIR`), `403`, `404` (titular desconhecido), `409` (já há pedido em andamento ou o familiar tem assinatura Premium ativa).
+- **Quem pode**: só o próprio titular. O `titularId` é o `sub` do Keycloak do usuário autenticado (idoso ou familiar) e precisa ser igual ao `sub` do token; o perfil é buscado por esse `sub`. O pedido de um Familiar Administrador em nome de outra pessoa não existe no MVP. Roles diferentes de `idoso` e `familiar` recebem `403`.
+- **Respostas**: `400` (confirmação diferente de `EXCLUIR`), `403` (`titularId` diferente do `sub` do token, ou role sem direito), `404` (o `sub` não tem perfil), `409` (já há pedido em andamento ou o familiar tem assinatura Premium ativa).
 - **O que acontece**: numa transação, o pedido é gravado, `lgpd.erasure.requested` vai para a outbox e os dados do titular no report-service são apagados: relatórios, exportações, projeções e os PDFs e exportações no armazenamento de objetos. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito. O registro do pedido (protocolo, datas, confirmações) permanece como prova do atendimento.
-- **Comprovante**: identity, care, billing, insight, notification e telemetry confirmam com `lgpd.erasure.completed`. Quando as seis chegam, o pedido vira `CONCLUIDO` e o comprovante vai por e-mail (SMTP) para o titular, ou para quem fez o pedido quando o idoso não tem e-mail. O e-mail é apagado do pedido depois do envio.
-- **Pendência**: o vínculo de Familiar Administrador ainda não tem evento de origem (o care-service não o publica); enquanto `projecao_vinculo_administrador` estiver vazia, só o próprio titular consegue pedir.
+- **Comprovante**: identity, care, billing, insight, notification e telemetry confirmam com `lgpd.erasure.completed`. Quando as seis chegam, o pedido vira `CONCLUIDO` e o comprovante vai por e-mail (SMTP) para o e-mail do titular; sem e-mail no perfil (idoso pareado por QR), o pedido conclui sem comprovante por e-mail. O e-mail é apagado do pedido depois do envio.
+- **Evento**: `lgpd.erasure.requested` leva o `sub` em `titularId` e em `titularSub`. O `titularSub` está deprecado no contrato e sai na próxima versão major.
 
 ## Armazenamento de objetos
 
