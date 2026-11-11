@@ -10,6 +10,7 @@ import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
 
 /**
@@ -43,6 +44,15 @@ class ArmazenamentoMinio implements ArmazenamentoObjetos {
                     .build());
         } catch (Exception e) {
             throw new ArmazenamentoException("Falha ao gravar o objeto " + chave, e);
+        }
+    }
+
+    @Override
+    public void remover(String chave) {
+        try {
+            cliente.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(chave).build());
+        } catch (Exception e) {
+            throw new ArmazenamentoException("Falha ao apagar o objeto " + chave, e);
         }
     }
 

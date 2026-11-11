@@ -4,7 +4,9 @@ import java.util.UUID;
 
 import com.seniorinsight.report.application.porta.saida.RegistroEventosProcessados;
 import com.seniorinsight.report.application.porta.saida.RepositorioProjecoes;
+import com.seniorinsight.report.domain.projecao.AssinaturaFamiliar;
 import com.seniorinsight.report.domain.projecao.OcorrenciaSos;
+import com.seniorinsight.report.domain.projecao.PerfilTitular;
 import com.seniorinsight.report.domain.projecao.ScoreIdoso;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +43,26 @@ public class AtualizarProjecoes {
             return false;
         }
         projecoes.salvarSos(sos);
+        return true;
+    }
+
+    /** @return {@code false} se o evento já tinha sido aplicado */
+    @Transactional
+    public boolean aplicarPerfil(UUID eventoId, String tipoEvento, PerfilTitular perfil) {
+        if (!eventosProcessados.registrarSeNovo(eventoId, tipoEvento)) {
+            return false;
+        }
+        projecoes.salvarPerfil(perfil);
+        return true;
+    }
+
+    /** @return {@code false} se o evento já tinha sido aplicado */
+    @Transactional
+    public boolean aplicarAssinatura(UUID eventoId, String tipoEvento, AssinaturaFamiliar assinatura) {
+        if (!eventosProcessados.registrarSeNovo(eventoId, tipoEvento)) {
+            return false;
+        }
+        projecoes.salvarAssinatura(assinatura);
         return true;
     }
 }
