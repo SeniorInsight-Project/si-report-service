@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.seniorinsight.report.application.porta.saida.EliminacaoDadosTitular;
+import com.seniorinsight.report.domain.projecao.PerfilTitular;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,22 +26,24 @@ class EliminacaoDadosTitularJdbc implements EliminacaoDadosTitular {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public List<String> apagarRegistros(UUID titularId, String titularSub) {
+    public List<String> apagarRegistros(PerfilTitular titular) {
+        UUID chaveDeDominio = titular.chaveDeDominio();
+        String sub = titular.keycloakSub();
         List<String> arquivos = new ArrayList<>(jdbc.queryForList("""
                 DELETE FROM relatorio WHERE idoso_id = ? RETURNING objeto_chave
-                """, String.class, titularId));
+                """, String.class, chaveDeDominio));
         arquivos.addAll(jdbc.queryForList("""
                 DELETE FROM pedido_titular
                  WHERE tipo = 'EXPORTACAO' AND (titular_id = ? OR titular_sub = ?)
                 RETURNING objeto_chave
-                """, String.class, titularId, titularSub));
+                """, String.class, titular.perfilId(), sub));
 
-        jdbc.update("DELETE FROM projecao_score WHERE idoso_id = ?", titularId);
-        jdbc.update("DELETE FROM projecao_sos WHERE idoso_id = ?", titularId);
+        jdbc.update("DELETE FROM projecao_score WHERE idoso_id = ?", chaveDeDominio);
+        jdbc.update("DELETE FROM projecao_sos WHERE idoso_id = ?", chaveDeDominio);
         jdbc.update("DELETE FROM projecao_vinculo_administrador WHERE idoso_id = ? OR familiar_sub = ?",
-                titularId, titularSub);
-        jdbc.update("DELETE FROM projecao_assinatura WHERE familiar_sub = ?", titularSub);
-        jdbc.update("DELETE FROM projecao_perfil WHERE perfil_id = ?", titularId);
+                chaveDeDominio, sub);
+        jdbc.update("DELETE FROM projecao_assinatura WHERE familiar_sub = ?", sub);
+        jdbc.update("DELETE FROM projecao_perfil WHERE perfil_id = ?", titular.perfilId());
 
         // RETURNING devolve null quando a linha ainda não tinha arquivo.
         arquivos.removeIf(chave -> chave == null);

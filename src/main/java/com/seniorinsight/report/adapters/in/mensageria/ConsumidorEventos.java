@@ -79,7 +79,8 @@ class ConsumidorEventos {
         } else if (tipo.equals("user.created")) {
             PerfilPayload perfil = dadosDoEnvelope(mensagem, PerfilPayload.class);
             aplicado = atualizarProjecoes.aplicarPerfil(eventoId, tipo, new PerfilTitular(perfil.perfilId(),
-                    perfil.keycloakSub(), TipoTitular.valueOf(perfil.tipo()), perfil.nome(), perfil.email()));
+                    perfil.keycloakSub(), TipoTitular.valueOf(perfil.tipo()), perfil.nome(), perfil.email(),
+                    perfil.idosoId()));
         } else if (tipo.equals("subscription.changed")) {
             AssinaturaPayload assinatura = dadosDoEnvelope(mensagem, AssinaturaPayload.class);
             aplicado = atualizarProjecoes.aplicarAssinatura(eventoId, tipo,
@@ -116,7 +117,7 @@ class ConsumidorEventos {
     record SosPayload(UUID sosId, UUID idosoId, String status, Instant ocorridoEm) {
     }
 
-    record PerfilPayload(UUID perfilId, String keycloakSub, String tipo, String nome, String email) {
+    record PerfilPayload(UUID perfilId, String keycloakSub, String tipo, String nome, String email, UUID idosoId) {
     }
 
     record AssinaturaPayload(String familiarSub, String plano, boolean ativa) {

@@ -41,8 +41,8 @@ import org.testcontainers.containers.MinIOContainer;
 /**
  * Pedido de exclusão de ponta a ponta, com PostgreSQL, RabbitMQ e MinIO reais: o perfil chega por {@code user.created},
  * o POST (com o {@code sub} do Keycloak em {@code titularId}) grava o pedido com o id do perfil, publica
- * {@code lgpd.erasure.requested} pelo outbox (id do perfil em {@code titularId}, {@code sub} em {@code titularSub}) e
- * apaga os arquivos; as confirmações dos
+ * {@code lgpd.erasure.requested} pelo outbox ({@code idosoId} do care em {@code titularId} para o idoso cadastrado,
+ * {@code sub} em {@code titularSub}) e apaga os dados e os arquivos por essa chave; as confirmações dos
  * seis serviços chegam por {@code lgpd.erasure.completed} e a última dispara o comprovante.
  */
 @TesteIntegracao
@@ -81,14 +81,18 @@ class ExclusaoIntegracaoTest {
 
     @Test
     void pedidoApagaOsDadosPublicaOEventoEOComprovanteSaiQuandoTodosConfirmam() throws Exception {
+        // O perfil e o idosoId do care são UUIDs diferentes: o evento e a eliminação precisam usar o idosoId.
+        UUID perfilId = UUID.randomUUID();
         UUID idosoId = UUID.randomUUID();
+        UUID outroPerfilId = UUID.randomUUID();
         UUID outroIdosoId = UUID.randomUUID();
         UUID subDoOutro = UUID.randomUUID();
         UUID subIdoso = UUID.randomUUID();
         String sub = subIdoso.toString();
-        publicarUserCreated(idosoId, sub, "IDOSO", "maria@email.com");
-        publicarUserCreated(outroIdosoId, subDoOutro.toString(), "IDOSO", "outra@email.com");
-        await().atMost(ESPERA).until(() -> perfis(outroIdosoId) == 1 && perfis(idosoId) == 1);
+        publicarUserCreated(perfilId, idosoId, sub, "IDOSO", "maria@email.com");
+        publicarUserCreated(outroPerfilId, outroIdosoId, subDoOutro.toString(), "IDOSO", "outra@email.com");
+        await().atMost(ESPERA).until(() -> perfis(outroPerfilId) == 1 && perfis(perfilId) == 1);
+        assertThat(idosoDoPerfil(perfilId)).isEqualTo(idosoId);
 
         String pdf = "relatorios/" + idosoId + "/semanal.pdf";
         String pdfDoOutro = "relatorios/" + outroIdosoId + "/semanal.pdf";
@@ -96,7 +100,8 @@ class ExclusaoIntegracaoTest {
         armazenamento.salvar(pdfDoOutro, "pdf".getBytes(StandardCharsets.UTF_8), "application/pdf");
         semearRelatorio(idosoId, pdf);
         semearRelatorio(outroIdosoId, pdfDoOutro);
-        jdbc.update("INSERT INTO projecao_score (idoso_id, score, calculado_em) VALUES (?, 80, now())", idosoId);
+        semearScoreESos(idosoId);
+        semearScoreESos(outroIdosoId);
 
         Queue fila = amqpAdmin.declareQueue();
         amqpAdmin.declareBinding(BindingBuilder.bind(fila).to(new TopicExchange("si.events"))
@@ -104,8 +109,8 @@ class ExclusaoIntegracaoTest {
 
         // titularId de outra pessoa: 403, sem registrar pedido nem apagar nada.
         solicitar(subDoOutro, sub, "idoso", "EXCLUIR").andExpect(status().isForbidden());
-        assertThat(pedidosDoTitular(outroIdosoId)).isZero();
-        assertThat(perfis(outroIdosoId)).isEqualTo(1);
+        assertThat(pedidosDoTitular(outroPerfilId)).isZero();
+        assertThat(perfis(outroPerfilId)).isEqualTo(1);
         // Confirmação errada.
         solicitar(subIdoso, sub, "idoso", "excluir").andExpect(status().isBadRequest());
 
@@ -123,15 +128,20 @@ class ExclusaoIntegracaoTest {
         assertThat(envelope.get("subject").asText()).isEqualTo(protocolo.toString());
         assertThat(envelope.at("/data/protocolo").asText()).isEqualTo(protocolo.toString());
         assertThat(envelope.at("/data/titularId").asText()).isEqualTo(idosoId.toString());
+        assertThat(envelope.at("/data/titularId").asText()).isNotEqualTo(perfilId.toString());
         assertThat(envelope.at("/data/titularSub").asText()).isEqualTo(sub);
         assertThat(envelope.at("/data/tipoTitular").asText()).isEqualTo("IDOSO");
 
         // Dados do titular apagados; os do outro titular ficam.
         assertThat(contar("relatorio", idosoId)).isZero();
         assertThat(contar("projecao_score", idosoId)).isZero();
-        assertThat(perfis(idosoId)).isZero();
+        assertThat(contar("projecao_sos", idosoId)).isZero();
+        assertThat(perfis(perfilId)).isZero();
+        assertThat(pedidosDoTitular(perfilId)).isEqualTo(1);
         assertThat(existeNoArmazenamento(pdf)).isFalse();
         assertThat(contar("relatorio", outroIdosoId)).isEqualTo(1);
+        assertThat(contar("projecao_score", outroIdosoId)).isEqualTo(1);
+        assertThat(contar("projecao_sos", outroIdosoId)).isEqualTo(1);
         assertThat(existeNoArmazenamento(pdfDoOutro)).isTrue();
         Map<String, Object> pedido = jdbc.queryForMap(
                 "SELECT status, prazo_em - criado_em AS prazo FROM pedido_titular WHERE id = ?", protocolo);
@@ -139,8 +149,8 @@ class ExclusaoIntegracaoTest {
         assertThat(pedido.get("prazo").toString()).contains("15 days");
 
         // Já há um pedido em andamento (o perfil sumiu, então a repetição deixa de achar o titular).
-        publicarUserCreated(idosoId, sub, "IDOSO", "maria@email.com");
-        await().atMost(ESPERA).until(() -> perfis(idosoId) == 1);
+        publicarUserCreated(perfilId, idosoId, sub, "IDOSO", "maria@email.com");
+        await().atMost(ESPERA).until(() -> perfis(perfilId) == 1);
         solicitar(subIdoso, sub, "idoso", "EXCLUIR").andExpect(status().isConflict());
 
         // Cinco confirmações: ainda sem comprovante. A sexta conclui o pedido.
@@ -171,11 +181,36 @@ class ExclusaoIntegracaoTest {
     }
 
     @Test
+    void idosoSemIdosoIdPublicaOIdDoPerfilEApagaOsDadosPorEle() throws Exception {
+        UUID perfilId = UUID.randomUUID();
+        UUID subIdoso = UUID.randomUUID();
+        String sub = subIdoso.toString();
+        publicarUserCreated(perfilId, null, sub, "IDOSO", "joao@email.com");
+        await().atMost(ESPERA).until(() -> perfis(perfilId) == 1);
+        assertThat(idosoDoPerfil(perfilId)).isNull();
+        semearScoreESos(perfilId);
+        Queue fila = amqpAdmin.declareQueue();
+        amqpAdmin.declareBinding(BindingBuilder.bind(fila).to(new TopicExchange("si.events"))
+                .with("lgpd.erasure.requested"));
+
+        solicitar(subIdoso, sub, "idoso", "EXCLUIR").andExpect(status().isAccepted());
+
+        Message mensagem = rabbitTemplate.receive(fila.getName(), ESPERA.toMillis());
+        assertThat(mensagem).as("lgpd.erasure.requested publicado").isNotNull();
+        JsonNode envelope = objectMapper.readTree(mensagem.getBody());
+        assertThat(contrato("lgpd.erasure.requested.v1.json").validate(envelope)).isEmpty();
+        assertThat(envelope.at("/data/titularId").asText()).isEqualTo(perfilId.toString());
+        assertThat(contar("projecao_score", perfilId)).isZero();
+        assertThat(contar("projecao_sos", perfilId)).isZero();
+        assertThat(perfis(perfilId)).isZero();
+    }
+
+    @Test
     void familiarComAssinaturaPremiumAtivaNaoApagaAConta() throws Exception {
         UUID familiarId = UUID.randomUUID();
         UUID subFamiliar = UUID.randomUUID();
         String sub = subFamiliar.toString();
-        publicarUserCreated(familiarId, sub, "FAMILIAR", "ana@email.com");
+        publicarUserCreated(familiarId, null, sub, "FAMILIAR", "ana@email.com");
         publicar(UUID.randomUUID(), "subscription.changed", Map.of(
                 "familiarSub", sub, "plano", "PREMIUM", "ativa", true, "expiraEm", "2027-01-01T00:00:00Z",
                 "emCarencia", false));
@@ -212,7 +247,7 @@ class ExclusaoIntegracaoTest {
                 .content("{\"confirmacao\": \"" + confirmacao + "\"}"));
     }
 
-    private void publicarUserCreated(UUID perfilId, String sub, String tipo, String email) {
+    private void publicarUserCreated(UUID perfilId, UUID idosoId, String sub, String tipo, String email) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("perfilId", perfilId.toString());
         data.put("keycloakSub", sub);
@@ -220,7 +255,12 @@ class ExclusaoIntegracaoTest {
         data.put("nome", "Fulano");
         data.put("email", email);
         data.put("criadoEm", "2026-11-01T10:00:00Z");
-        publicar(UUID.randomUUID(), "user.created", data);
+        data.put("idosoId", idosoId == null ? null : idosoId.toString());
+        UUID eventoId = UUID.randomUUID();
+        Map<String, Object> envelope = envelope(eventoId, "user.created", "/identity-service", perfilId.toString(),
+                data);
+        assertThat(contrato("user.created.v1.json").validate(objectMapper.valueToTree(envelope))).isEmpty();
+        enviar(eventoId, "user.created", envelope);
     }
 
     private void publicarConfirmacao(UUID eventoId, UUID protocolo, String servico) {
@@ -276,6 +316,16 @@ class ExclusaoIntegracaoTest {
                 INSERT INTO relatorio (idoso_id, tipo, periodo_inicio, periodo_fim, status, objeto_chave)
                 VALUES (?, 'SEMANAL_MEDICO', '2026-10-26', '2026-11-01', 'PRONTO', ?)
                 """, idosoId, chave);
+    }
+
+    private void semearScoreESos(UUID idosoId) {
+        jdbc.update("INSERT INTO projecao_score (idoso_id, score, calculado_em) VALUES (?, 80, now())", idosoId);
+        jdbc.update("INSERT INTO projecao_sos (sos_id, idoso_id, status, ocorrido_em) VALUES (?, ?, 'ABERTO', now())",
+                UUID.randomUUID(), idosoId);
+    }
+
+    private UUID idosoDoPerfil(UUID perfilId) {
+        return jdbc.queryForObject("SELECT idoso_id FROM projecao_perfil WHERE perfil_id = ?", UUID.class, perfilId);
     }
 
     private int pedidosDoTitular(UUID titularId) {
