@@ -30,7 +30,7 @@ Pacote base `com.seniorinsight.report`, em arquitetura hexagonal (mesmo padrão 
 | `relatorio` | Relatórios gerados (semanal do médico, carteira da operadora), com a chave do PDF no armazenamento |
 | `pedido_titular` | Pedidos LGPD do titular (exportação, eliminação), com protocolo, prazo e destino do comprovante |
 | `confirmacao_exclusao` | Confirmações `lgpd.erasure.completed` recebidas, uma por serviço e pedido |
-| `projecao_perfil` | Perfis projetados de `user.created`: ligam o `sub` do token ao id do perfil (o `titularId` do pedido e do evento) e dão o e-mail do comprovante |
+| `projecao_perfil` | Perfis projetados de `user.created`: ligam o `sub` do token ao id do perfil (o `titularId` do pedido), guardam o `idosoId` do care (o `titularId` do evento, para o idoso cadastrado lá) e dão o e-mail do comprovante |
 | `projecao_assinatura` | Assinatura do familiar, projetada de `subscription.changed` |
 | `projecao_vinculo_administrador` | Familiares administradores de cada idoso (ainda sem evento de origem; a exclusão não usa mais essa projeção, só a apaga) |
 | `projecao_score` | Último score de cada idoso, projetado dos eventos `score.*` |
@@ -142,7 +142,7 @@ Os eventos `user.created`, `subscription.changed` e `lgpd.erasure.completed` che
 - **Respostas**: `400` (confirmação diferente de `EXCLUIR`), `403` (`titularId` diferente do `sub` do token, ou role sem direito), `404` (o `sub` não tem perfil), `409` (já há pedido em andamento ou o familiar tem assinatura Premium ativa).
 - **O que acontece**: numa transação, o pedido é gravado, `lgpd.erasure.requested` vai para a outbox e os dados do titular no report-service são apagados: relatórios, exportações, projeções e os PDFs e exportações no armazenamento de objetos. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito. O registro do pedido (protocolo, datas, confirmações) permanece como prova do atendimento.
 - **Comprovante**: identity, care, billing, insight, notification e telemetry confirmam com `lgpd.erasure.completed`. Quando as seis chegam, o pedido vira `CONCLUIDO` e o comprovante vai por e-mail (SMTP) para o e-mail do titular; sem e-mail no perfil (idoso pareado por QR), o pedido conclui sem comprovante por e-mail. O e-mail é apagado do pedido depois do envio.
-- **Evento**: `lgpd.erasure.requested` leva o id do perfil em `titularId` (a chave local dos outros serviços, que o pedido também usa) e o `sub` do Keycloak em `titularSub` (a chave do billing). A rota usa o `sub`; o evento não muda.
+- **Evento**: `lgpd.erasure.requested` leva em `titularId` a chave dos dados do titular nos outros serviços: o `idosoId` do care para o idoso cadastrado lá (vem do `user.created`); para o idoso sem `idosoId` e para o familiar, o id do perfil. O `sub` do Keycloak vai em `titularSub` (a chave do billing). O pedido (`pedido_titular.titular_id`) guarda sempre o id do perfil, e a rota usa o `sub`. A eliminação local apaga relatórios, score e SOS por essa mesma chave, e o perfil pelo id do perfil.
 
 ## Armazenamento de objetos
 

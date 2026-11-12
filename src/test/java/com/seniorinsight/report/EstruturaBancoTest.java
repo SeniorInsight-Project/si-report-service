@@ -19,12 +19,22 @@ class EstruturaBancoTest {
 
     @Test
     void flywayAplicaAsMigracoesNoSchemaReport() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
         assertThat(jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'report'", String.class))
                 .contains("relatorio", "pedido_titular", "projecao_score", "projecao_sos", "evento_processado",
                         "outbox_evento", "confirmacao_exclusao", "projecao_perfil", "projecao_assinatura",
                         "projecao_vinculo_administrador", "flyway_schema_history");
+    }
+
+    @Test
+    void projecaoPerfilTemIdosoIdOpcional() {
+        String anulavel = jdbc.queryForObject("""
+                SELECT is_nullable FROM information_schema.columns
+                 WHERE table_schema = 'report' AND table_name = 'projecao_perfil' AND column_name = 'idoso_id'
+                """, String.class);
+
+        assertThat(anulavel).isEqualTo("YES");
     }
 
     @Test

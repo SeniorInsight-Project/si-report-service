@@ -15,14 +15,16 @@ import org.springframework.stereotype.Repository;
 @Repository
 class ConsultaTitularesJdbc implements ConsultaTitulares {
 
-    private static final String SELECT_PERFIL = "SELECT perfil_id, keycloak_sub, tipo, nome, email FROM projecao_perfil";
+    private static final String SELECT_PERFIL =
+            "SELECT perfil_id, keycloak_sub, tipo, nome, email, idoso_id FROM projecao_perfil";
 
     private static final RowMapper<PerfilTitular> PERFIL = (rs, i) -> new PerfilTitular(
             rs.getObject("perfil_id", UUID.class),
             rs.getString("keycloak_sub"),
             TipoTitular.valueOf(rs.getString("tipo")),
             rs.getString("nome"),
-            rs.getString("email"));
+            rs.getString("email"),
+            rs.getObject("idoso_id", UUID.class));
 
     private final JdbcTemplate jdbc;
 

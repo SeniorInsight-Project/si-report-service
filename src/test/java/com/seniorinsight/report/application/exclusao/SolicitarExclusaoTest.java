@@ -51,8 +51,9 @@ class SolicitarExclusaoTest {
     private final UUID idosoId = UUID.randomUUID();
     private final UUID perfilIdoso = UUID.randomUUID();
     private final String subIdoso = idosoId.toString();
+    private final UUID idosoCare = UUID.randomUUID();
     private final PerfilTitular idoso =
-            new PerfilTitular(perfilIdoso, subIdoso, TipoTitular.IDOSO, "Maria", "maria@email.com");
+            new PerfilTitular(perfilIdoso, subIdoso, TipoTitular.IDOSO, "Maria", "maria@email.com", idosoCare);
     private final Solicitante daIdosa = new Solicitante(subIdoso, Set.of("idoso"));
 
     @BeforeEach
@@ -60,7 +61,7 @@ class SolicitarExclusaoTest {
         caso = new SolicitarExclusao(titulares, pedidos, publicador, eliminacao, armazenamento,
                 Clock.fixed(AGORA, ZoneOffset.UTC));
         when(titulares.buscarPerfilPorSub(subIdoso)).thenReturn(Optional.of(idoso));
-        when(eliminacao.apagarRegistros(any(), any())).thenReturn(List.of());
+        when(eliminacao.apagarRegistros(any())).thenReturn(List.of());
     }
 
     @Test
@@ -77,26 +78,58 @@ class SolicitarExclusaoTest {
     }
 
     @Test
-    void publicaOEventoComOIdDoPerfilEmTitularIdEOSubEmTitularSub() {
+    void idosoComIdosoIdPublicaOEventoComOIdosoIdEmTitularIdEOSubEmTitularSub() {
         PedidoExclusao pedido = caso.executar(idosoId, daIdosa);
 
         ArgumentCaptor<ExclusaoSolicitada> evento = ArgumentCaptor.forClass(ExclusaoSolicitada.class);
         verify(publicador).publicar(evento.capture());
         assertThat(evento.getValue()).isEqualTo(
-                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, perfilIdoso, subIdoso));
+                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, idosoCare, subIdoso));
         assertThat(evento.getValue().agregadoId()).isEqualTo(pedido.protocolo());
         assertThat(evento.getValue().tipoEvento()).isEqualTo("lgpd.erasure.requested");
     }
 
     @Test
+    void idosoSemIdosoIdPublicaOEventoComOIdDoPerfilEmTitularId() {
+        PerfilTitular semCare = new PerfilTitular(perfilIdoso, subIdoso, TipoTitular.IDOSO, "Maria", null, null);
+        when(titulares.buscarPerfilPorSub(subIdoso)).thenReturn(Optional.of(semCare));
+
+        PedidoExclusao pedido = caso.executar(idosoId, daIdosa);
+
+        verify(publicador).publicar(
+                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, perfilIdoso, subIdoso));
+    }
+
+    @Test
+    void familiarPublicaOEventoComOIdDoPerfilEmTitularId() {
+        UUID familiarId = UUID.randomUUID();
+        UUID perfilFamiliar = UUID.randomUUID();
+        String subFamiliar = familiarId.toString();
+        when(titulares.buscarPerfilPorSub(subFamiliar)).thenReturn(Optional.of(
+                new PerfilTitular(perfilFamiliar, subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com", null)));
+
+        PedidoExclusao pedido = caso.executar(familiarId, new Solicitante(subFamiliar, Set.of("familiar")));
+
+        verify(publicador).publicar(
+                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.FAMILIAR, perfilFamiliar, subFamiliar));
+    }
+
+    @Test
+    void pedidoGuardaOIdDoPerfilMesmoQuandoOEventoLevaOIdosoId() {
+        PedidoExclusao pedido = caso.executar(idosoId, daIdosa);
+
+        assertThat(pedido.titularId()).isEqualTo(perfilIdoso);
+    }
+
+    @Test
     void apagaOsArquivosDoTitularNoArmazenamentoDepoisDeGravarOPedido() {
-        when(eliminacao.apagarRegistros(perfilIdoso, subIdoso)).thenReturn(List.of("relatorios/a.pdf", "exports/b.zip"));
+        when(eliminacao.apagarRegistros(idoso)).thenReturn(List.of("relatorios/a.pdf", "exports/b.zip"));
 
         caso.executar(idosoId, daIdosa);
 
         var ordem = inOrder(pedidos, eliminacao, armazenamento);
         ordem.verify(pedidos).salvar(any());
-        ordem.verify(eliminacao).apagarRegistros(perfilIdoso, subIdoso);
+        ordem.verify(eliminacao).apagarRegistros(idoso);
         ordem.verify(armazenamento).remover("relatorios/a.pdf");
         ordem.verify(armazenamento).remover("exports/b.zip");
     }
@@ -161,7 +194,7 @@ class SolicitarExclusaoTest {
         UUID familiarId = UUID.randomUUID();
         String subFamiliar = familiarId.toString();
         when(titulares.buscarPerfilPorSub(subFamiliar)).thenReturn(Optional.of(
-                new PerfilTitular(UUID.randomUUID(), subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
+                new PerfilTitular(UUID.randomUUID(), subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com", null)));
         when(titulares.buscarAssinatura(subFamiliar))
                 .thenReturn(Optional.of(new AssinaturaFamiliar(subFamiliar, "PREMIUM", true)));
 
@@ -174,7 +207,7 @@ class SolicitarExclusaoTest {
         UUID familiarId = UUID.randomUUID();
         String subFamiliar = familiarId.toString();
         when(titulares.buscarPerfilPorSub(subFamiliar)).thenReturn(Optional.of(
-                new PerfilTitular(UUID.randomUUID(), subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com")));
+                new PerfilTitular(UUID.randomUUID(), subFamiliar, TipoTitular.FAMILIAR, "Ana", "ana@email.com", null)));
         when(titulares.buscarAssinatura(subFamiliar))
                 .thenReturn(Optional.of(new AssinaturaFamiliar(subFamiliar, "PREMIUM", false)));
 

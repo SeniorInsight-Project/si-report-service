@@ -24,9 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Só o próprio titular pede: o {@code titularId} da rota é o {@code sub} do Keycloak e precisa ser o do token. O
  * pedido de um Familiar Administrador em nome de outra pessoa não existe no MVP. Numa única transação o caso de uso
- * grava o pedido, com o id do perfil como titular (prazo de {@value PedidoExclusao#PRAZO_DIAS} dias), enfileira {@code lgpd.erasure.requested} na outbox
- * e apaga os dados do titular no próprio report-service: registros no banco e arquivos (PDFs e exportações) no
- * armazenamento. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito.
+ * grava o pedido, com o id do perfil como titular (prazo de {@value PedidoExclusao#PRAZO_DIAS} dias), enfileira
+ * {@code lgpd.erasure.requested} na outbox, com a chave de domínio do titular, e apaga os dados do titular no próprio
+ * report-service: registros no banco e arquivos (PDFs e exportações) no armazenamento. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito.
  */
 @Service
 public class SolicitarExclusao {
@@ -73,9 +73,9 @@ public class SolicitarExclusao {
             // Duas requisições simultâneas: o índice único deixa passar só a primeira.
             throw ExclusaoException.pedidoEmAndamento();
         }
-        publicador.publicar(ExclusaoSolicitada.de(pedido));
+        publicador.publicar(ExclusaoSolicitada.de(pedido, titular));
 
-        List<String> arquivos = eliminacao.apagarRegistros(titular.perfilId(), titular.keycloakSub());
+        List<String> arquivos = eliminacao.apagarRegistros(titular);
         arquivos.forEach(armazenamento::remover);
         log.info("Exclusão {}: pedido registrado, {} arquivo(s) apagado(s) do armazenamento",
                 pedido.protocolo(), arquivos.size());
