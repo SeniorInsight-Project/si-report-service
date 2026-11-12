@@ -65,12 +65,14 @@
         },
         "titularId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "Id de domínio do titular (o mesmo usado pelos serviços como chave local: `idoso_id` para IDOSO, id do perfil para FAMILIAR). Não é o `sub`."
         },
         "titularSub": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 255
+          "maxLength": 255,
+          "description": "`sub` do Keycloak do titular"
         }
       }
     }
