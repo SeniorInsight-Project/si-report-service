@@ -67,7 +67,8 @@ class SolicitarExclusaoTest {
     void idosoTitularPedeAExclusaoComPrazoDeQuinzeDias() {
         PedidoExclusao pedido = caso.executar(idosoId, daIdosa);
 
-        assertThat(pedido.titularId()).isEqualTo(idosoId);
+        assertThat(pedido.titularId()).isEqualTo(perfilIdoso);
+        assertThat(pedido.titularSub()).isEqualTo(subIdoso);
         assertThat(pedido.tipoTitular()).isEqualTo(TipoTitular.IDOSO);
         assertThat(pedido.solicitadoEm()).isEqualTo(AGORA);
         assertThat(pedido.prazoEm()).isEqualTo(AGORA.plus(Duration.ofDays(15)));
@@ -76,13 +77,13 @@ class SolicitarExclusaoTest {
     }
 
     @Test
-    void publicaOEventoComOSubEmTitularIdEEmTitularSub() {
+    void publicaOEventoComOIdDoPerfilEmTitularIdEOSubEmTitularSub() {
         PedidoExclusao pedido = caso.executar(idosoId, daIdosa);
 
         ArgumentCaptor<ExclusaoSolicitada> evento = ArgumentCaptor.forClass(ExclusaoSolicitada.class);
         verify(publicador).publicar(evento.capture());
         assertThat(evento.getValue()).isEqualTo(
-                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, idosoId, subIdoso));
+                new ExclusaoSolicitada(pedido.protocolo(), TipoTitular.IDOSO, perfilIdoso, subIdoso));
         assertThat(evento.getValue().agregadoId()).isEqualTo(pedido.protocolo());
         assertThat(evento.getValue().tipoEvento()).isEqualTo("lgpd.erasure.requested");
     }
@@ -139,7 +140,7 @@ class SolicitarExclusaoTest {
 
     @Test
     void pedidoEmAndamentoEhConflito() {
-        when(pedidos.existeEmAndamento(idosoId)).thenReturn(true);
+        when(pedidos.existeEmAndamento(perfilIdoso)).thenReturn(true);
 
         assertThatThrownBy(() -> caso.executar(idosoId, daIdosa))
                 .isInstanceOfSatisfying(ExclusaoException.class, e -> assertThat(e.tipo()).isEqualTo(Tipo.CONFLITO));

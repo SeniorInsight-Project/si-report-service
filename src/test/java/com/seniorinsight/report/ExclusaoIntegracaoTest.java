@@ -40,7 +40,9 @@ import org.testcontainers.containers.MinIOContainer;
 
 /**
  * Pedido de exclusão de ponta a ponta, com PostgreSQL, RabbitMQ e MinIO reais: o perfil chega por {@code user.created},
- * o POST (com o {@code sub} do Keycloak em {@code titularId}) grava o pedido, publica {@code lgpd.erasure.requested} pelo outbox e apaga os arquivos; as confirmações dos
+ * o POST (com o {@code sub} do Keycloak em {@code titularId}) grava o pedido com o id do perfil, publica
+ * {@code lgpd.erasure.requested} pelo outbox (id do perfil em {@code titularId}, {@code sub} em {@code titularSub}) e
+ * apaga os arquivos; as confirmações dos
  * seis serviços chegam por {@code lgpd.erasure.completed} e a última dispara o comprovante.
  */
 @TesteIntegracao
@@ -102,7 +104,7 @@ class ExclusaoIntegracaoTest {
 
         // titularId de outra pessoa: 403, sem registrar pedido nem apagar nada.
         solicitar(subDoOutro, sub, "idoso", "EXCLUIR").andExpect(status().isForbidden());
-        assertThat(pedidosDoTitular(subDoOutro)).isZero();
+        assertThat(pedidosDoTitular(outroIdosoId)).isZero();
         assertThat(perfis(outroIdosoId)).isEqualTo(1);
         // Confirmação errada.
         solicitar(subIdoso, sub, "idoso", "excluir").andExpect(status().isBadRequest());
@@ -120,7 +122,7 @@ class ExclusaoIntegracaoTest {
         assertThat(contrato("lgpd.erasure.requested.v1.json").validate(envelope)).isEmpty();
         assertThat(envelope.get("subject").asText()).isEqualTo(protocolo.toString());
         assertThat(envelope.at("/data/protocolo").asText()).isEqualTo(protocolo.toString());
-        assertThat(envelope.at("/data/titularId").asText()).isEqualTo(sub);
+        assertThat(envelope.at("/data/titularId").asText()).isEqualTo(idosoId.toString());
         assertThat(envelope.at("/data/titularSub").asText()).isEqualTo(sub);
         assertThat(envelope.at("/data/tipoTitular").asText()).isEqualTo("IDOSO");
 
@@ -183,7 +185,7 @@ class ExclusaoIntegracaoTest {
         solicitar(subFamiliar, sub, "familiar", "EXCLUIR").andExpect(status().isConflict());
 
         assertThat(perfis(familiarId)).isEqualTo(1);
-        assertThat(pedidosDoTitular(subFamiliar)).isZero();
+        assertThat(pedidosDoTitular(familiarId)).isZero();
     }
 
     @Test
