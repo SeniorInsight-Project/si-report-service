@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Só o próprio titular pede: o {@code titularId} da rota é o {@code sub} do Keycloak e precisa ser o do token. O
  * pedido de um Familiar Administrador em nome de outra pessoa não existe no MVP. Numa única transação o caso de uso
- * grava o pedido (prazo de {@value PedidoExclusao#PRAZO_DIAS} dias), enfileira {@code lgpd.erasure.requested} na outbox
+ * grava o pedido, com o id do perfil como titular (prazo de {@value PedidoExclusao#PRAZO_DIAS} dias), enfileira {@code lgpd.erasure.requested} na outbox
  * e apaga os dados do titular no próprio report-service: registros no banco e arquivos (PDFs e exportações) no
  * armazenamento. Se o armazenamento falhar, nada é confirmado e o pedido pode ser refeito.
  */
@@ -58,14 +58,14 @@ public class SolicitarExclusao {
         }
         PerfilTitular titular = titulares.buscarPerfilPorSub(solicitante.sub())
                 .orElseThrow(ExclusaoException::titularNaoEncontrado);
-        if (pedidos.existeEmAndamento(titularId)) {
+        if (pedidos.existeEmAndamento(titular.perfilId())) {
             throw ExclusaoException.pedidoEmAndamento();
         }
         if (titular.tipo() == TipoTitular.FAMILIAR && temPremiumAtiva(titular)) {
             throw ExclusaoException.assinaturaAtiva();
         }
 
-        PedidoExclusao pedido = PedidoExclusao.registrar(titularId, titular.tipo(), titular.keycloakSub(),
+        PedidoExclusao pedido = PedidoExclusao.registrar(titular.perfilId(), titular.tipo(), titular.keycloakSub(),
                 solicitante.sub(), titular.email(), relogio.instant());
         try {
             pedidos.salvar(pedido);
