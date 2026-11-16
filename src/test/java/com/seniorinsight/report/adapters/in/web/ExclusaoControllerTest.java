@@ -60,17 +60,17 @@ class ExclusaoControllerTest {
         UUID protocolo = UUID.randomUUID();
         Instant agora = Instant.parse("2026-11-10T12:00:00Z");
         when(solicitarExclusao.executar(eq(titularId), any())).thenReturn(new PedidoExclusao(protocolo, titularId,
-                TipoTitular.IDOSO, "sub-idoso", "sub-idoso", "maria@email.com", agora, agora.plusSeconds(1296000)));
+                TipoTitular.IDOSO, titularId.toString(), titularId.toString(), "maria@email.com", agora, agora.plusSeconds(1296000)));
 
         mvc.perform(post("/v1/titulares/{id}/exclusao", titularId)
-                        .with(token("sub-idoso", "idoso"))
+                        .with(token(titularId.toString(), "idoso"))
                         .contentType(MediaType.APPLICATION_JSON).content(CORPO_VALIDO))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.protocolo").value(protocolo.toString()))
                 .andExpect(jsonPath("$.prazoDias").value(15))
                 .andExpect(jsonPath("$.solicitadoEm").value("2026-11-10T12:00:00Z"));
 
-        verify(solicitarExclusao).executar(titularId, new Solicitante("sub-idoso", Set.of("idoso")));
+        verify(solicitarExclusao).executar(titularId, new Solicitante(titularId.toString(), Set.of("idoso")));
     }
 
     @Test
@@ -111,7 +111,7 @@ class ExclusaoControllerTest {
         when(solicitarExclusao.executar(any(), any())).thenThrow(ExclusaoException.acessoNegado());
 
         mvc.perform(post("/v1/titulares/{id}/exclusao", titularId)
-                        .with(token("sub-outro", "familiar"))
+                        .with(token(UUID.randomUUID().toString(), "familiar"))
                         .contentType(MediaType.APPLICATION_JSON).content(CORPO_VALIDO))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403));

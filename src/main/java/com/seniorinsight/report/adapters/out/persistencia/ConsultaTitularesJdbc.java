@@ -15,14 +15,16 @@ import org.springframework.stereotype.Repository;
 @Repository
 class ConsultaTitularesJdbc implements ConsultaTitulares {
 
-    private static final String SELECT_PERFIL = "SELECT perfil_id, keycloak_sub, tipo, nome, email FROM projecao_perfil";
+    private static final String SELECT_PERFIL =
+            "SELECT perfil_id, keycloak_sub, tipo, nome, email, idoso_id FROM projecao_perfil";
 
     private static final RowMapper<PerfilTitular> PERFIL = (rs, i) -> new PerfilTitular(
             rs.getObject("perfil_id", UUID.class),
             rs.getString("keycloak_sub"),
             TipoTitular.valueOf(rs.getString("tipo")),
             rs.getString("nome"),
-            rs.getString("email"));
+            rs.getString("email"),
+            rs.getObject("idoso_id", UUID.class));
 
     private final JdbcTemplate jdbc;
 
@@ -31,20 +33,8 @@ class ConsultaTitularesJdbc implements ConsultaTitulares {
     }
 
     @Override
-    public Optional<PerfilTitular> buscarPerfil(UUID perfilId) {
-        return jdbc.query(SELECT_PERFIL + " WHERE perfil_id = ?", PERFIL, perfilId).stream().findFirst();
-    }
-
-    @Override
     public Optional<PerfilTitular> buscarPerfilPorSub(String keycloakSub) {
         return jdbc.query(SELECT_PERFIL + " WHERE keycloak_sub = ?", PERFIL, keycloakSub).stream().findFirst();
-    }
-
-    @Override
-    public boolean ehFamiliarAdministrador(UUID idosoId, String familiarSub) {
-        return Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS (SELECT 1 FROM projecao_vinculo_administrador WHERE idoso_id = ? AND familiar_sub = ?)
-                """, Boolean.class, idosoId, familiarSub));
     }
 
     @Override

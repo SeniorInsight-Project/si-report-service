@@ -7,7 +7,9 @@ import java.util.UUID;
 /**
  * Pedido de exclusão dos dados de um titular (LGPD). O protocolo é o id do pedido.
  *
- * @param solicitanteSub  {@code sub} de quem fez o pedido: o próprio titular ou um Familiar Administrador
+ * @param titularId       id do perfil do titular (o mesmo {@code titularId} do evento)
+ * @param titularSub      {@code sub} do Keycloak do titular
+ * @param solicitanteSub  {@code sub} de quem fez o pedido, sempre o do próprio titular
  * @param emailComprovante destino do comprovante; some do banco depois que o comprovante é enviado
  */
 public record PedidoExclusao(

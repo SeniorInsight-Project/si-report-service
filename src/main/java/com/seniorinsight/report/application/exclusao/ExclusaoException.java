@@ -22,7 +22,7 @@ public class ExclusaoException extends RuntimeException {
 
     public static ExclusaoException acessoNegado() {
         return new ExclusaoException(Tipo.ACESSO_NEGADO,
-                "Só o idoso titular ou o Familiar Administrador pode pedir a exclusão");
+                "Só o próprio titular pode pedir a exclusão dos seus dados");
     }
 
     public static ExclusaoException pedidoEmAndamento() {

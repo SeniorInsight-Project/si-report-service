@@ -65,12 +65,14 @@
         },
         "titularId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "Para IDOSO: o `idosoId` do care-service; se o idoso não tiver cadastro no care, o id do perfil no identity. Para FAMILIAR: o id do perfil no identity. Não é o `sub`."
         },
         "titularSub": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 255
+          "maxLength": 255,
+          "description": "`sub` do Keycloak do titular"
         }
       }
     }

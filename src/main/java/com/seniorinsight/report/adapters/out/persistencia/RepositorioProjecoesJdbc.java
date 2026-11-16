@@ -43,12 +43,13 @@ class RepositorioProjecoesJdbc implements RepositorioProjecoes {
     @Override
     public void salvarPerfil(PerfilTitular perfil) {
         jdbc.update("""
-                INSERT INTO projecao_perfil (perfil_id, keycloak_sub, tipo, nome, email, atualizado_em)
-                VALUES (?, ?, ?, ?, ?, now())
+                INSERT INTO projecao_perfil (perfil_id, keycloak_sub, tipo, nome, email, idoso_id, atualizado_em)
+                VALUES (?, ?, ?, ?, ?, ?, now())
                 ON CONFLICT (perfil_id) DO UPDATE
                    SET keycloak_sub = EXCLUDED.keycloak_sub, tipo = EXCLUDED.tipo, nome = EXCLUDED.nome,
-                       email = EXCLUDED.email, atualizado_em = now()
-                """, perfil.perfilId(), perfil.keycloakSub(), perfil.tipo().name(), perfil.nome(), perfil.email());
+                       email = EXCLUDED.email, idoso_id = EXCLUDED.idoso_id, atualizado_em = now()
+                """, perfil.perfilId(), perfil.keycloakSub(), perfil.tipo().name(), perfil.nome(), perfil.email(),
+                perfil.idosoId());
     }
 
     @Override
